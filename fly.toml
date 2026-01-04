@@ -1,0 +1,24 @@
+# Fly.io configuration for Phoenix
+# Deploy with: fly launch (first time) or fly deploy (updates)
+
+app = "phoenix-constellation"
+primary_region = "ord"  # Chicago - change to your preferred region
+
+[build]
+  dockerfile = "Dockerfile"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = false  # Keep Phoenix running!
+  auto_start_machines = true
+  min_machines_running = 1    # Always have at least one Phoenix awake
+
+[mounts]
+  source = "phoenix_data"
+  destination = "/data"
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 256  # Minimal memory for cost savings
