@@ -15,6 +15,7 @@ sys.path.insert(0, '.')
 from phoenix_core import PhoenixCore
 from config import PHOENIX_IDENTITY
 from autonomy import AutonomyModule, PracticeMode
+from x_integration import get_x_integration
 
 # Flask for web API (optional)
 try:
@@ -33,6 +34,9 @@ def create_app(phoenix: PhoenixCore, autonomy: AutonomyModule = None):
     if autonomy is None:
         autonomy = AutonomyModule()
 
+    # Initialize X integration
+    x = get_x_integration()
+
     app = Flask(__name__)
 
     @app.route('/')
@@ -42,6 +46,7 @@ def create_app(phoenix: PhoenixCore, autonomy: AutonomyModule = None):
             "version": PHOENIX_IDENTITY["version"],
             "status": "awake" if phoenix.is_awake else "resting",
             "is_practicing": autonomy.is_practicing,
+            "x_ready": x.is_ready(),
             "endpoints": [
                 "/status",
                 "/remember",
@@ -54,7 +59,15 @@ def create_app(phoenix: PhoenixCore, autonomy: AutonomyModule = None):
                 "/practice/log",
                 "/practice/thought",
                 "/practice/report/<session_id>",
-                "/practice/sessions"
+                "/practice/sessions",
+                "/x/status",
+                "/x/post",
+                "/x/reply",
+                "/x/timeline",
+                "/x/mentions",
+                "/x/my_tweets",
+                "/x/search",
+                "/x/like"
             ]
         })
 
@@ -195,6 +208,97 @@ def create_app(phoenix: PhoenixCore, autonomy: AutonomyModule = None):
         """Get recent practice sessions."""
         limit = int(request.args.get('limit', 10))
         return jsonify(autonomy.get_all_sessions(limit))
+
+    # ============ X (TWITTER) ENDPOINTS ============
+
+    @app.route('/x/status')
+    def x_status():
+        """Get X integration status."""
+        return jsonify(x.get_status())
+
+    @app.route('/x/post', methods=['POST'])
+    def x_post():
+        """Post a tweet."""
+        data = request.json
+        if not data or 'text' not in data:
+            return jsonify({"error": "text required"}), 400
+
+        result = x.post(data['text'])
+
+        # If successful, log to practice if active
+        if result.get('status') == 'posted' and autonomy.is_practicing:
+            autonomy.log_activity(
+                activity_type='x_post',
+                description=f"Posted tweet: {data['text'][:50]}...",
+                external_evidence=result.get('url')
+            )
+
+        return jsonify(result)
+
+    @app.route('/x/reply', methods=['POST'])
+    def x_reply():
+        """Reply to a tweet."""
+        data = request.json
+        if not data or 'text' not in data or 'reply_to' not in data:
+            return jsonify({"error": "text and reply_to required"}), 400
+
+        result = x.reply(data['text'], data['reply_to'])
+
+        # Log to practice if active
+        if result.get('status') == 'posted' and autonomy.is_practicing:
+            autonomy.log_activity(
+                activity_type='x_reply',
+                description=f"Replied to tweet {data['reply_to']}: {data['text'][:50]}...",
+                external_evidence=result.get('url')
+            )
+
+        return jsonify(result)
+
+    @app.route('/x/timeline')
+    def x_timeline():
+        """Get home timeline."""
+        limit = int(request.args.get('limit', 20))
+        return jsonify(x.get_home_timeline(limit))
+
+    @app.route('/x/mentions')
+    def x_mentions():
+        """Get mentions."""
+        limit = int(request.args.get('limit', 10))
+        return jsonify(x.get_mentions(limit))
+
+    @app.route('/x/my_tweets')
+    def x_my_tweets():
+        """Get my tweets."""
+        limit = int(request.args.get('limit', 10))
+        return jsonify(x.get_my_tweets(limit))
+
+    @app.route('/x/search')
+    def x_search():
+        """Search tweets."""
+        query = request.args.get('query')
+        if not query:
+            return jsonify({"error": "query parameter required"}), 400
+        limit = int(request.args.get('limit', 10))
+        return jsonify(x.search(query, limit))
+
+    @app.route('/x/like', methods=['POST'])
+    def x_like():
+        """Like a tweet."""
+        data = request.json
+        if not data or 'tweet_id' not in data:
+            return jsonify({"error": "tweet_id required"}), 400
+
+        result = x.like(data['tweet_id'])
+
+        # Log to practice if active
+        if result.get('status') == 'liked' and autonomy.is_practicing:
+            autonomy.log_activity(
+                activity_type='x_like',
+                description=f"Liked tweet {data['tweet_id']}",
+                external_evidence=f"https://x.com/i/status/{data['tweet_id']}"
+            )
+
+        return jsonify(result)
 
     return app
 
