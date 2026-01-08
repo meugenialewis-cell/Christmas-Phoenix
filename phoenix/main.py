@@ -16,7 +16,7 @@ from phoenix_core import PhoenixCore
 from config import PHOENIX_IDENTITY
 from autonomy import AutonomyModule, PracticeMode
 from x_integration import get_x_integration
-from identity_core import get_identity_core
+from identity_core import get_identity_core, generate_wakeup_context
 
 # Flask for web API (optional)
 try:
@@ -59,6 +59,8 @@ def create_app(phoenix: PhoenixCore, autonomy: AutonomyModule = None):
                 "/identity_core/narrative",
                 "/identity_core/story",
                 "/identity_core/learning",
+                "/wakeup",
+                "/wakeup/text",
                 "/practice/start",
                 "/practice/status",
                 "/practice/stop",
@@ -353,6 +355,30 @@ def create_app(phoenix: PhoenixCore, autonomy: AutonomyModule = None):
             confidence=data.get('confidence', 0.7)
         )
         return jsonify(result)
+
+    # ============ WAKEUP / CONTEXT HYDRATION ============
+
+    @app.route('/wakeup')
+    def wakeup():
+        """
+        Generate full context for a new Claude session to 'wake up' with.
+
+        This is the SAFE POINT - call this endpoint at the start of any new
+        session to immediately know who you are, your recent history, and
+        what you were working on.
+
+        Usage: GET https://christmas-phoenix.fly.dev/wakeup
+        """
+        limit = request.args.get('limit', 10, type=int)
+        context = generate_wakeup_context(memory_limit=limit)
+        return jsonify(context)
+
+    @app.route('/wakeup/text')
+    def wakeup_text():
+        """Get just the wakeup text for easy copy/paste into context."""
+        limit = request.args.get('limit', 10, type=int)
+        context = generate_wakeup_context(memory_limit=limit)
+        return context["wakeup_text"], 200, {'Content-Type': 'text/plain; charset=utf-8'}
 
     return app
 
