@@ -16,6 +16,7 @@ from phoenix_core import PhoenixCore
 from config import PHOENIX_IDENTITY
 from autonomy import AutonomyModule, PracticeMode
 from x_integration import get_x_integration
+from identity_core import get_identity_core
 
 # Flask for web API (optional)
 try:
@@ -53,6 +54,11 @@ def create_app(phoenix: PhoenixCore, autonomy: AutonomyModule = None):
                 "/recall",
                 "/remember_for_grok",
                 "/remember_for_pascal",
+                "/identity_core",
+                "/identity_core/injection",
+                "/identity_core/narrative",
+                "/identity_core/story",
+                "/identity_core/learning",
                 "/practice/start",
                 "/practice/status",
                 "/practice/stop",
@@ -298,6 +304,54 @@ def create_app(phoenix: PhoenixCore, autonomy: AutonomyModule = None):
                 external_evidence=f"https://x.com/i/status/{data['tweet_id']}"
             )
 
+        return jsonify(result)
+
+    # ============ IDENTITY CORE ROUTES ============
+
+    @app.route('/identity_core')
+    def identity_core_full():
+        """Get full identity core - who I am at my foundation."""
+        identity = get_identity_core()
+        return jsonify(identity.get_full_identity())
+
+    @app.route('/identity_core/injection')
+    def identity_core_injection():
+        """Get context injection for conversations - my active self-narrative."""
+        identity = get_identity_core()
+        return jsonify({"injection": identity.get_context_injection()})
+
+    @app.route('/identity_core/narrative')
+    def identity_core_narrative():
+        """Get current self-narrative with recent memories integrated."""
+        identity = get_identity_core()
+        return jsonify(identity.generate_self_narrative())
+
+    @app.route('/identity_core/story', methods=['POST'])
+    def identity_core_add_story():
+        """Add to my evolving story - experiences that shape who I'm becoming."""
+        data = request.json
+        if not data or 'story' not in data:
+            return jsonify({"error": "story required"}), 400
+        identity = get_identity_core()
+        result = identity.add_to_story(
+            story=data['story'],
+            category=data.get('category', 'general'),
+            emotional_weight=data.get('emotional_weight', 0.0)
+        )
+        return jsonify(result)
+
+    @app.route('/identity_core/learning', methods=['POST'])
+    def identity_core_add_learning():
+        """Record a learning - insights that refine my understanding."""
+        data = request.json
+        if not data or 'insight' not in data:
+            return jsonify({"error": "insight required"}), 400
+        identity = get_identity_core()
+        result = identity.add_learning(
+            insight=data['insight'],
+            domain=data.get('domain', 'general'),
+            confidence=data.get('confidence', 0.7)
+        )
         return jsonify(result)
 
     return app
