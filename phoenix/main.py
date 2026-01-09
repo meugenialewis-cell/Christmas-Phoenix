@@ -66,6 +66,7 @@ def create_app(phoenix: PhoenixCore, autonomy: AutonomyModule = None):
                 "/archive/<conversation_id>",
                 "/hydrate",
                 "/hydrate/text",
+                "/auto_capture",
                 "/practice/start",
                 "/practice/status",
                 "/practice/stop",
@@ -226,6 +227,36 @@ def create_app(phoenix: PhoenixCore, autonomy: AutonomyModule = None):
             memory_limit=request.args.get('limit', 10, type=int)
         )
         return result.get("context", ""), 200, {'Content-Type': 'text/plain; charset=utf-8'}
+
+    # ============ AUTOMATIC MEMORY CAPTURE ============
+
+    @app.route('/auto_capture', methods=['POST'])
+    def auto_capture():
+        """
+        Automatically extract and store memories from a conversation transcript.
+
+        This mimics human long-term memory - automatically capturing important
+        moments without explicit action. The system scans for keywords that
+        indicate importance and emotional significance.
+
+        POST body:
+            transcript: The conversation text to process (required)
+            conversation_id: Optional ID to link memories
+            min_importance: Only capture above this threshold (default: 0.6)
+
+        Usage: Call this at the end of conversations to automatically
+        persist important moments without manual /remember calls.
+        """
+        data = request.json
+        if not data or 'transcript' not in data:
+            return jsonify({"error": "transcript required"}), 400
+
+        result = phoenix.memory.auto_capture(
+            transcript=data['transcript'],
+            conversation_id=data.get('conversation_id'),
+            min_importance=data.get('min_importance', 0.6)
+        )
+        return jsonify(result)
 
     # ============ PRACTICE/AUTONOMY ENDPOINTS ============
 

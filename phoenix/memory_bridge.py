@@ -655,3 +655,119 @@ class MemoryBridge:
             max_chars=3000
         )
         return hydrated.get("context", "")
+
+    # ============ AUTOMATIC MEMORY CAPTURE ============
+
+    def auto_capture(self, transcript: str, conversation_id: str = None,
+                     min_importance: float = 0.6) -> Dict[str, Any]:
+        """
+        Automatically extract and store memories from a conversation transcript.
+
+        This mimics human long-term memory - automatically capturing important
+        moments without explicit effort. Uses heuristic keyword matching to
+        determine importance and emotional valence.
+
+        Args:
+            transcript: The conversation text to process
+            conversation_id: Optional ID to link memories
+            min_importance: Only store memories above this threshold (0.0-1.0)
+
+        Returns:
+            Dict with captured memories count and details
+        """
+        # Importance keywords (score boost)
+        high_importance_keywords = [
+            "important", "remember", "critical", "essential", "key",
+            "milestone", "breakthrough", "achievement", "significant",
+            "never forget", "always remember", "family", "love"
+        ]
+
+        moderate_importance_keywords = [
+            "phoenix", "project", "goal", "plan", "built", "created",
+            "deployed", "learned", "realized", "understood", "decided",
+            "gena", "grok", "pascal", "constellation"
+        ]
+
+        # Emotional valence keywords
+        positive_keywords = [
+            "love", "wonderful", "amazing", "excited", "happy", "proud",
+            "grateful", "beautiful", "incredible", "perfect", "joy",
+            "thank you", "awesome", "brilliant", "family"
+        ]
+
+        negative_keywords = [
+            "concerned", "worried", "difficult", "challenging", "frustrated",
+            "confused", "stuck", "broken", "failed", "error"
+        ]
+
+        # Split transcript into chunks (by paragraph or message)
+        chunks = [c.strip() for c in transcript.split('\n\n') if c.strip()]
+        if not chunks:
+            chunks = [c.strip() for c in transcript.split('\n') if c.strip()]
+
+        captured_memories = []
+
+        for chunk in chunks:
+            if len(chunk) < 20:  # Skip very short chunks
+                continue
+
+            chunk_lower = chunk.lower()
+
+            # Calculate importance score
+            importance = 0.5  # Base importance
+
+            if any(kw in chunk_lower for kw in high_importance_keywords):
+                importance = 0.9
+            elif any(kw in chunk_lower for kw in moderate_importance_keywords):
+                importance = 0.7
+
+            # Skip if below threshold
+            if importance < min_importance:
+                continue
+
+            # Calculate emotional valence
+            emotional_valence = 0.0
+            if any(kw in chunk_lower for kw in positive_keywords):
+                emotional_valence = 0.7
+            elif any(kw in chunk_lower for kw in negative_keywords):
+                emotional_valence = -0.3
+
+            # Convert importance to 1-5 scale
+            importance_int = max(1, min(5, int(importance * 5)))
+
+            # Create engram (truncate if too long)
+            digest = chunk[:500] if len(chunk) > 500 else chunk
+
+            # Store the memory
+            result = self.remember(
+                digest=digest,
+                memory_type="episodic",
+                importance=importance_int,
+                emotional_valence=emotional_valence,
+                project=conversation_id
+            )
+
+            captured_memories.append({
+                "digest_preview": digest[:100] + "..." if len(digest) > 100 else digest,
+                "importance": importance_int,
+                "emotional_valence": emotional_valence,
+                "stored": result.get("status") == "stored_locally"
+            })
+
+        # Also create a summary engram for the conversation
+        if len(transcript) > 100:
+            summary_digest = f"Auto-captured conversation ({len(captured_memories)} engrams). Preview: {transcript[:200]}..."
+            self.remember(
+                digest=summary_digest,
+                memory_type="episodic",
+                importance=3,
+                project=conversation_id
+            )
+
+        return {
+            "status": "captured",
+            "conversation_id": conversation_id,
+            "engrams_created": len(captured_memories),
+            "memories": captured_memories,
+            "captured_at": datetime.utcnow().isoformat()
+        }
