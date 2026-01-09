@@ -61,6 +61,11 @@ def create_app(phoenix: PhoenixCore, autonomy: AutonomyModule = None):
                 "/identity_core/learning",
                 "/wakeup",
                 "/wakeup/text",
+                "/archive",
+                "/archive/search",
+                "/archive/<conversation_id>",
+                "/hydrate",
+                "/hydrate/text",
                 "/practice/start",
                 "/practice/status",
                 "/practice/stop",
@@ -145,6 +150,82 @@ def create_app(phoenix: PhoenixCore, autonomy: AutonomyModule = None):
     def sync():
         result = phoenix.memory.sync_pending()
         return jsonify(result)
+
+    # ============ REFERENCE ARCHIVE ENDPOINTS ============
+
+    @app.route('/archive', methods=['POST'])
+    def archive_conversation():
+        """Archive a complete conversation transcript."""
+        data = request.json
+        if not data or 'transcript' not in data:
+            return jsonify({"error": "transcript required"}), 400
+
+        result = phoenix.memory.archive_conversation(
+            conversation_id=data.get('conversation_id', datetime.now().strftime('%Y%m%d_%H%M%S')),
+            transcript=data['transcript'],
+            title=data.get('title'),
+            summary=data.get('summary'),
+            participants=data.get('participants'),
+            tags=data.get('tags'),
+            started_at=data.get('started_at'),
+            ended_at=data.get('ended_at')
+        )
+        return jsonify(result)
+
+    @app.route('/archive/search')
+    def search_archive():
+        """Search the reference archive for relevant conversations."""
+        query = request.args.get('query')
+        if not query:
+            return jsonify({"error": "query parameter required"}), 400
+
+        limit = request.args.get('limit', 5, type=int)
+        results = phoenix.memory.search_reference(query, limit=limit)
+        return jsonify({"results": results, "count": len(results)})
+
+    @app.route('/archive/<conversation_id>')
+    def get_archived_conversation(conversation_id):
+        """Get full transcript for a specific archived conversation."""
+        result = phoenix.memory.get_conversation(conversation_id)
+        if not result:
+            return jsonify({"error": "Conversation not found"}), 404
+        return jsonify(result)
+
+    # ============ CONTEXT HYDRATION ENDPOINTS ============
+
+    @app.route('/hydrate')
+    def hydrate_context():
+        """
+        Get hydrated context - intelligently blended memories for prompt injection.
+
+        Query params:
+            query: Optional search term for relevance
+            include_recent: Include recent memories (default: true)
+            include_important: Include high-importance memories (default: true)
+            include_reference: Include reference conversations (default: false)
+            memory_limit: Max memories per category (default: 10)
+            max_chars: Maximum total characters (default: 4000)
+        """
+        result = phoenix.memory.hydrate_context(
+            query=request.args.get('query'),
+            include_recent=request.args.get('include_recent', 'true').lower() == 'true',
+            include_important=request.args.get('include_important', 'true').lower() == 'true',
+            include_reference=request.args.get('include_reference', 'false').lower() == 'true',
+            memory_limit=request.args.get('memory_limit', 10, type=int),
+            max_chars=request.args.get('max_chars', 4000, type=int)
+        )
+        return jsonify(result)
+
+    @app.route('/hydrate/text')
+    def hydrate_context_text():
+        """Get hydrated context as plain text for easy copy/paste."""
+        result = phoenix.memory.hydrate_context(
+            query=request.args.get('query'),
+            include_recent=True,
+            include_important=True,
+            memory_limit=request.args.get('limit', 10, type=int)
+        )
+        return result.get("context", ""), 200, {'Content-Type': 'text/plain; charset=utf-8'}
 
     # ============ PRACTICE/AUTONOMY ENDPOINTS ============
 

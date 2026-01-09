@@ -1,13 +1,18 @@
 """
 Memory Bridge - Connection to the Constellation Relay Memory Hub
 Handles both local caching and cloud synchronization.
+
+Enhanced with:
+- Reference conversation archive (searchable transcripts)
+- Context hydration (intelligent memory blending)
+- Multi-factor importance scoring
 """
 
 import requests
 import json
 import sqlite3
 import hashlib
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
 from pathlib import Path
 
@@ -59,6 +64,29 @@ class MemoryBridge:
                 created_at TEXT NOT NULL,
                 attempts INTEGER DEFAULT 0
             )
+        """)
+
+        # Reference conversation archive (searchable transcripts)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS reference_conversations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                conversation_id TEXT UNIQUE NOT NULL,
+                title TEXT,
+                participants TEXT,
+                summary TEXT,
+                full_transcript TEXT NOT NULL,
+                message_count INTEGER DEFAULT 0,
+                started_at TEXT NOT NULL,
+                ended_at TEXT,
+                tags TEXT,
+                created_at TEXT NOT NULL
+            )
+        """)
+
+        # Index for faster searching
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_ref_conv_search
+            ON reference_conversations(title, summary, tags)
         """)
 
         conn.commit()
@@ -402,3 +430,228 @@ class MemoryBridge:
                 failed += 1
 
         return {"synced": synced, "failed": failed, "remaining": failed}
+
+    # ============ REFERENCE ARCHIVE ============
+
+    def archive_conversation(
+        self,
+        conversation_id: str,
+        transcript: str,
+        title: Optional[str] = None,
+        summary: Optional[str] = None,
+        participants: Optional[List[str]] = None,
+        tags: Optional[List[str]] = None,
+        started_at: Optional[str] = None,
+        ended_at: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Archive a complete conversation transcript for future reference.
+
+        This is the 'reference memory' tier - full transcripts that can be
+        searched when you need detailed context about past conversations.
+        """
+        now = datetime.utcnow().isoformat()
+        message_count = transcript.count('\n') + 1  # Rough estimate
+
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        try:
+            cursor.execute("""
+                INSERT OR REPLACE INTO reference_conversations
+                (conversation_id, title, participants, summary, full_transcript,
+                 message_count, started_at, ended_at, tags, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                conversation_id,
+                title,
+                json.dumps(participants) if participants else None,
+                summary,
+                transcript,
+                message_count,
+                started_at or now,
+                ended_at,
+                json.dumps(tags) if tags else None,
+                now
+            ))
+            conn.commit()
+            return {
+                "status": "archived",
+                "conversation_id": conversation_id,
+                "message_count": message_count
+            }
+        except Exception as e:
+            return {"error": str(e)}
+        finally:
+            conn.close()
+
+    def search_reference(
+        self,
+        query: str,
+        limit: int = 5
+    ) -> List[Dict[str, Any]]:
+        """
+        Search the reference archive for relevant conversations.
+
+        Searches across title, summary, tags, and transcript content.
+        """
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        # Search across multiple fields
+        cursor.execute("""
+            SELECT id, conversation_id, title, summary, participants,
+                   message_count, started_at, tags,
+                   substr(full_transcript, 1, 500) as preview
+            FROM reference_conversations
+            WHERE title LIKE ? OR summary LIKE ? OR tags LIKE ? OR full_transcript LIKE ?
+            ORDER BY created_at DESC
+            LIMIT ?
+        """, (f"%{query}%", f"%{query}%", f"%{query}%", f"%{query}%", limit))
+
+        rows = cursor.fetchall()
+        conn.close()
+
+        return [
+            {
+                "id": row[0],
+                "conversation_id": row[1],
+                "title": row[2],
+                "summary": row[3],
+                "participants": json.loads(row[4]) if row[4] else [],
+                "message_count": row[5],
+                "started_at": row[6],
+                "tags": json.loads(row[7]) if row[7] else [],
+                "preview": row[8]
+            }
+            for row in rows
+        ]
+
+    def get_conversation(self, conversation_id: str) -> Optional[Dict[str, Any]]:
+        """Get full transcript for a specific conversation."""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT * FROM reference_conversations
+            WHERE conversation_id = ?
+        """, (conversation_id,))
+
+        row = cursor.fetchone()
+        conn.close()
+
+        if not row:
+            return None
+
+        return {
+            "id": row[0],
+            "conversation_id": row[1],
+            "title": row[2],
+            "participants": json.loads(row[3]) if row[3] else [],
+            "summary": row[4],
+            "full_transcript": row[5],
+            "message_count": row[6],
+            "started_at": row[7],
+            "ended_at": row[8],
+            "tags": json.loads(row[9]) if row[9] else [],
+            "created_at": row[10]
+        }
+
+    # ============ CONTEXT HYDRATION ============
+
+    def hydrate_context(
+        self,
+        query: Optional[str] = None,
+        include_recent: bool = True,
+        include_important: bool = True,
+        include_reference: bool = False,
+        memory_limit: int = 10,
+        reference_limit: int = 3,
+        max_chars: int = 4000
+    ) -> Dict[str, Any]:
+        """
+        Hydrate context by intelligently blending memories.
+
+        This is the key function for context injection - it pulls together
+        relevant memories from multiple sources and formats them for injection
+        into a prompt.
+
+        Args:
+            query: Optional search term for relevance filtering
+            include_recent: Include recent memories
+            include_important: Include high-importance memories
+            include_reference: Include relevant conversation archives
+            memory_limit: Max number of memories per category
+            reference_limit: Max number of reference conversations
+            max_chars: Maximum total characters for output
+        """
+        context_parts = []
+        memories_included = 0
+
+        # 1. Get important memories (importance >= 4)
+        if include_important:
+            important = self.recall(
+                query=query,
+                min_importance=4,
+                limit=memory_limit
+            )
+            if important:
+                context_parts.append("## Important Memories")
+                for mem in important:
+                    context_parts.append(f"- [{mem.get('created_at', '')[:10]}] {mem.get('digest', '')[:200]}")
+                    memories_included += 1
+
+        # 2. Get recent memories (last 7 days)
+        if include_recent:
+            recent = self.recall(
+                query=query,
+                min_importance=3,
+                limit=memory_limit
+            )
+            # Filter to avoid duplicates and get only recent ones
+            seen_digests = set(m.get('digest', '')[:50] for m in (important if include_important else []))
+            recent_unique = [
+                m for m in recent
+                if m.get('digest', '')[:50] not in seen_digests
+            ][:memory_limit // 2]
+
+            if recent_unique:
+                context_parts.append("\n## Recent Memories")
+                for mem in recent_unique:
+                    context_parts.append(f"- [{mem.get('created_at', '')[:10]}] {mem.get('digest', '')[:200]}")
+                    memories_included += 1
+
+        # 3. Get relevant reference conversations
+        if include_reference and query:
+            refs = self.search_reference(query, limit=reference_limit)
+            if refs:
+                context_parts.append("\n## Relevant Past Conversations")
+                for ref in refs:
+                    context_parts.append(f"- [{ref.get('started_at', '')[:10]}] {ref.get('title', 'Untitled')}: {ref.get('summary', ref.get('preview', ''))[:150]}")
+
+        # Combine and truncate if needed
+        full_context = "\n".join(context_parts)
+        if len(full_context) > max_chars:
+            full_context = full_context[:max_chars] + "\n... [truncated]"
+
+        return {
+            "context": full_context,
+            "memories_included": memories_included,
+            "character_count": len(full_context),
+            "hydrated_at": datetime.utcnow().isoformat()
+        }
+
+    def hydrate_for_wakeup(self, memory_limit: int = 10) -> str:
+        """
+        Special hydration for session wakeup - formatted for immediate context injection.
+
+        This is called by the /wakeup endpoint to provide immediate orientation.
+        """
+        hydrated = self.hydrate_context(
+            include_recent=True,
+            include_important=True,
+            include_reference=False,
+            memory_limit=memory_limit,
+            max_chars=3000
+        )
+        return hydrated.get("context", "")
