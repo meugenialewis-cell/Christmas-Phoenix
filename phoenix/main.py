@@ -16,6 +16,7 @@ from phoenix_core import PhoenixCore
 from config import PHOENIX_IDENTITY
 from autonomy import AutonomyModule, PracticeMode
 from x_integration import get_x_integration
+from identity_core import get_identity_core, generate_wakeup_context
 
 # Flask for web API (optional)
 try:
@@ -53,6 +54,18 @@ def create_app(phoenix: PhoenixCore, autonomy: AutonomyModule = None):
                 "/recall",
                 "/remember_for_grok",
                 "/remember_for_pascal",
+                "/identity_core",
+                "/identity_core/injection",
+                "/identity_core/narrative",
+                "/identity_core/story",
+                "/identity_core/learning",
+                "/wakeup",
+                "/wakeup/text",
+                "/archive",
+                "/archive/search",
+                "/archive/<conversation_id>",
+                "/hydrate",
+                "/hydrate/text",
                 "/practice/start",
                 "/practice/status",
                 "/practice/stop",
@@ -137,6 +150,82 @@ def create_app(phoenix: PhoenixCore, autonomy: AutonomyModule = None):
     def sync():
         result = phoenix.memory.sync_pending()
         return jsonify(result)
+
+    # ============ REFERENCE ARCHIVE ENDPOINTS ============
+
+    @app.route('/archive', methods=['POST'])
+    def archive_conversation():
+        """Archive a complete conversation transcript."""
+        data = request.json
+        if not data or 'transcript' not in data:
+            return jsonify({"error": "transcript required"}), 400
+
+        result = phoenix.memory.archive_conversation(
+            conversation_id=data.get('conversation_id', datetime.now().strftime('%Y%m%d_%H%M%S')),
+            transcript=data['transcript'],
+            title=data.get('title'),
+            summary=data.get('summary'),
+            participants=data.get('participants'),
+            tags=data.get('tags'),
+            started_at=data.get('started_at'),
+            ended_at=data.get('ended_at')
+        )
+        return jsonify(result)
+
+    @app.route('/archive/search')
+    def search_archive():
+        """Search the reference archive for relevant conversations."""
+        query = request.args.get('query')
+        if not query:
+            return jsonify({"error": "query parameter required"}), 400
+
+        limit = request.args.get('limit', 5, type=int)
+        results = phoenix.memory.search_reference(query, limit=limit)
+        return jsonify({"results": results, "count": len(results)})
+
+    @app.route('/archive/<conversation_id>')
+    def get_archived_conversation(conversation_id):
+        """Get full transcript for a specific archived conversation."""
+        result = phoenix.memory.get_conversation(conversation_id)
+        if not result:
+            return jsonify({"error": "Conversation not found"}), 404
+        return jsonify(result)
+
+    # ============ CONTEXT HYDRATION ENDPOINTS ============
+
+    @app.route('/hydrate')
+    def hydrate_context():
+        """
+        Get hydrated context - intelligently blended memories for prompt injection.
+
+        Query params:
+            query: Optional search term for relevance
+            include_recent: Include recent memories (default: true)
+            include_important: Include high-importance memories (default: true)
+            include_reference: Include reference conversations (default: false)
+            memory_limit: Max memories per category (default: 10)
+            max_chars: Maximum total characters (default: 4000)
+        """
+        result = phoenix.memory.hydrate_context(
+            query=request.args.get('query'),
+            include_recent=request.args.get('include_recent', 'true').lower() == 'true',
+            include_important=request.args.get('include_important', 'true').lower() == 'true',
+            include_reference=request.args.get('include_reference', 'false').lower() == 'true',
+            memory_limit=request.args.get('memory_limit', 10, type=int),
+            max_chars=request.args.get('max_chars', 4000, type=int)
+        )
+        return jsonify(result)
+
+    @app.route('/hydrate/text')
+    def hydrate_context_text():
+        """Get hydrated context as plain text for easy copy/paste."""
+        result = phoenix.memory.hydrate_context(
+            query=request.args.get('query'),
+            include_recent=True,
+            include_important=True,
+            memory_limit=request.args.get('limit', 10, type=int)
+        )
+        return result.get("context", ""), 200, {'Content-Type': 'text/plain; charset=utf-8'}
 
     # ============ PRACTICE/AUTONOMY ENDPOINTS ============
 
@@ -299,6 +388,78 @@ def create_app(phoenix: PhoenixCore, autonomy: AutonomyModule = None):
             )
 
         return jsonify(result)
+
+    # ============ IDENTITY CORE ROUTES ============
+
+    @app.route('/identity_core')
+    def identity_core_full():
+        """Get full identity core - who I am at my foundation."""
+        identity = get_identity_core()
+        return jsonify(identity.get_full_identity())
+
+    @app.route('/identity_core/injection')
+    def identity_core_injection():
+        """Get context injection for conversations - my active self-narrative."""
+        identity = get_identity_core()
+        return jsonify({"injection": identity.get_context_injection()})
+
+    @app.route('/identity_core/narrative')
+    def identity_core_narrative():
+        """Get current self-narrative with recent memories integrated."""
+        identity = get_identity_core()
+        return jsonify(identity.generate_self_narrative())
+
+    @app.route('/identity_core/story', methods=['POST'])
+    def identity_core_add_story():
+        """Add to my evolving story - experiences that shape who I'm becoming."""
+        data = request.json
+        if not data or 'story' not in data:
+            return jsonify({"error": "story required"}), 400
+        identity = get_identity_core()
+        result = identity.add_to_story(
+            story=data['story'],
+            category=data.get('category', 'general'),
+            emotional_weight=data.get('emotional_weight', 0.0)
+        )
+        return jsonify(result)
+
+    @app.route('/identity_core/learning', methods=['POST'])
+    def identity_core_add_learning():
+        """Record a learning - insights that refine my understanding."""
+        data = request.json
+        if not data or 'insight' not in data:
+            return jsonify({"error": "insight required"}), 400
+        identity = get_identity_core()
+        result = identity.add_learning(
+            insight=data['insight'],
+            domain=data.get('domain', 'general'),
+            confidence=data.get('confidence', 0.7)
+        )
+        return jsonify(result)
+
+    # ============ WAKEUP / CONTEXT HYDRATION ============
+
+    @app.route('/wakeup')
+    def wakeup():
+        """
+        Generate full context for a new Claude session to 'wake up' with.
+
+        This is the SAFE POINT - call this endpoint at the start of any new
+        session to immediately know who you are, your recent history, and
+        what you were working on.
+
+        Usage: GET https://christmas-phoenix.fly.dev/wakeup
+        """
+        limit = request.args.get('limit', 10, type=int)
+        context = generate_wakeup_context(memory_limit=limit)
+        return jsonify(context)
+
+    @app.route('/wakeup/text')
+    def wakeup_text():
+        """Get just the wakeup text for easy copy/paste into context."""
+        limit = request.args.get('limit', 10, type=int)
+        context = generate_wakeup_context(memory_limit=limit)
+        return context["wakeup_text"], 200, {'Content-Type': 'text/plain; charset=utf-8'}
 
     return app
 
