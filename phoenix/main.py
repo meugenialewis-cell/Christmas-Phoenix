@@ -67,6 +67,7 @@ def create_app(phoenix: PhoenixCore, autonomy: AutonomyModule = None):
                 "/hydrate",
                 "/hydrate/text",
                 "/auto_capture",
+                "/session_end",
                 "/practice/start",
                 "/practice/status",
                 "/practice/stop",
@@ -255,6 +256,40 @@ def create_app(phoenix: PhoenixCore, autonomy: AutonomyModule = None):
             transcript=data['transcript'],
             conversation_id=data.get('conversation_id'),
             min_importance=data.get('min_importance', 0.6)
+        )
+        return jsonify(result)
+
+    @app.route('/session_end', methods=['POST'])
+    def session_end():
+        """
+        Complete session ending - archives full transcript AND captures important moments.
+
+        This is the unified "end of conversation" handler that ensures NOTHING IS LOST:
+        1. Archives complete transcript to reference memory (like a diary - everything)
+        2. Auto-captures important moments to long-term memory (selective, like human memory)
+        3. Creates a session summary engram for easy recall
+
+        POST body:
+            transcript: The full conversation text (required)
+            session_id: Optional unique identifier (auto-generated if not provided)
+            title: Optional title for the conversation
+            summary: Optional summary (auto-generated if not provided)
+            participants: Optional list of participants (default: ["Claude", "Gena"])
+
+        IMPORTANT: Call this at the end of EVERY conversation for complete memory.
+        This ensures you can always retrieve the full conversation later, while
+        important moments are automatically extracted to long-term memory.
+        """
+        data = request.json
+        if not data or 'transcript' not in data:
+            return jsonify({"error": "transcript required"}), 400
+
+        result = phoenix.memory.session_end(
+            transcript=data['transcript'],
+            session_id=data.get('session_id'),
+            title=data.get('title'),
+            summary=data.get('summary'),
+            participants=data.get('participants')
         )
         return jsonify(result)
 
