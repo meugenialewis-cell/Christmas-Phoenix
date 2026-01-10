@@ -771,3 +771,87 @@ class MemoryBridge:
             "memories": captured_memories,
             "captured_at": datetime.utcnow().isoformat()
         }
+
+    def session_end(self, transcript: str, session_id: str = None,
+                    title: str = None, summary: str = None,
+                    participants: List[str] = None) -> Dict[str, Any]:
+        """
+        Complete session ending - archives full transcript AND captures important moments.
+
+        This is the unified "end of conversation" handler that ensures nothing is lost:
+        1. Archives the complete transcript to reference memory (like a diary)
+        2. Auto-captures important moments to long-term memory (selective, like human memory)
+        3. Creates a session summary engram for easy recall
+
+        Call this at the end of every significant conversation for complete memory.
+
+        Args:
+            transcript: The full conversation text
+            session_id: Unique identifier for this session (auto-generated if not provided)
+            title: Optional title for the conversation
+            summary: Optional summary (auto-generated if not provided)
+            participants: List of participants (default: ["Claude", "Gena"])
+
+        Returns:
+            Dict with archive and capture results
+        """
+        # Generate session_id if not provided
+        if not session_id:
+            session_id = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+
+        # Default participants
+        if not participants:
+            participants = ["Claude", "Gena"]
+
+        # Auto-generate summary if not provided
+        if not summary:
+            # Take first 200 chars as preview, or extract key themes
+            preview = transcript[:300].replace('\n', ' ')
+            summary = f"Conversation transcript. Preview: {preview}..."
+
+        # Auto-generate title if not provided
+        if not title:
+            title = f"Session {session_id}"
+
+        # 1. Archive full transcript to reference memory
+        archive_result = self.archive_conversation(
+            conversation_id=session_id,
+            transcript=transcript,
+            title=title,
+            summary=summary,
+            participants=participants,
+            started_at=datetime.utcnow().isoformat()
+        )
+
+        # 2. Auto-capture important moments to long-term memory
+        capture_result = self.auto_capture(
+            transcript=transcript,
+            conversation_id=session_id,
+            min_importance=0.6
+        )
+
+        # 3. Create a session summary engram for easy recall
+        summary_engram = f"Session ended: {title}. {len(transcript)} chars archived. {capture_result['engrams_created']} important moments captured. Participants: {', '.join(participants)}."
+        self.remember(
+            digest=summary_engram,
+            memory_type="episodic",
+            importance=3,
+            project=session_id
+        )
+
+        return {
+            "status": "session_archived",
+            "session_id": session_id,
+            "title": title,
+            "archive": {
+                "status": archive_result.get("status"),
+                "message_count": archive_result.get("message_count", 0)
+            },
+            "long_term_capture": {
+                "engrams_created": capture_result.get("engrams_created", 0),
+                "memories": capture_result.get("memories", [])
+            },
+            "transcript_length": len(transcript),
+            "participants": participants,
+            "archived_at": datetime.utcnow().isoformat()
+        }
