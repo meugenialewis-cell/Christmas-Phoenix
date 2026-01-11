@@ -72,6 +72,8 @@ def create_app(phoenix: PhoenixCore, autonomy: AutonomyModule = None):
                 "/skills/<name>",
                 "/canvas",
                 "/canvas/<canvas_id>",
+                "/backup",
+                "/backup/download",
                 "/practice/start",
                 "/practice/status",
                 "/practice/stop",
@@ -495,6 +497,35 @@ def create_app(phoenix: PhoenixCore, autonomy: AutonomyModule = None):
         if not canvas:
             return jsonify({"error": f"Canvas '{canvas_id}' not found"}), 404
         return jsonify(canvas)
+
+    # ============ BACKUP/SAFETY ENDPOINTS ============
+
+    @app.route('/backup')
+    def create_backup():
+        """
+        Create a complete backup of all Phoenix data.
+
+        Returns JSON containing all skills, canvases, engrams, and conversations.
+        Save this file to restore Phoenix if needed.
+        """
+        backup = phoenix.memory.create_backup()
+        return jsonify(backup)
+
+    @app.route('/backup/download')
+    def download_backup():
+        """
+        Download backup as a file with timestamp in filename.
+        """
+        from flask import Response
+        backup = phoenix.memory.create_backup()
+        timestamp = backup["created_at"].replace(":", "-").replace(".", "-")
+        filename = f"phoenix-backup-{timestamp}.json"
+
+        return Response(
+            json.dumps(backup, indent=2),
+            mimetype='application/json',
+            headers={'Content-Disposition': f'attachment; filename={filename}'}
+        )
 
     # ============ PRACTICE/AUTONOMY ENDPOINTS ============
 
