@@ -70,6 +70,8 @@ def create_app(phoenix: PhoenixCore, autonomy: AutonomyModule = None):
                 "/session_end",
                 "/skills",
                 "/skills/<name>",
+                "/canvas",
+                "/canvas/<canvas_id>",
                 "/practice/start",
                 "/practice/status",
                 "/practice/stop",
@@ -402,6 +404,97 @@ def create_app(phoenix: PhoenixCore, autonomy: AutonomyModule = None):
         if result.get("status") == "error":
             return jsonify(result), 404
         return jsonify(result)
+
+    # ============ CANVAS (VISUAL CREATIONS) ============
+
+    @app.route('/canvas', methods=['GET'])
+    def list_canvases():
+        """List recent canvases."""
+        limit = request.args.get('limit', 20, type=int)
+        canvases = phoenix.memory.list_canvases(limit=limit)
+        return jsonify({"canvases": canvases, "count": len(canvases)})
+
+    @app.route('/canvas', methods=['POST'])
+    def create_canvas():
+        """
+        Create a new visual canvas (SVG, HTML, diagram).
+
+        POST body:
+            content: The visual content (SVG markup, HTML, etc.) - required
+            canvas_id: Optional unique identifier
+            title: Optional title
+            content_type: svg, html, or mermaid (default: svg)
+            description: Optional description
+
+        Returns canvas_id and view_url to see the rendered result.
+        """
+        data = request.json
+        if not data or 'content' not in data:
+            return jsonify({"error": "content required"}), 400
+
+        result = phoenix.memory.create_canvas(
+            content=data['content'],
+            canvas_id=data.get('canvas_id'),
+            title=data.get('title'),
+            content_type=data.get('content_type', 'svg'),
+            description=data.get('description')
+        )
+
+        if result.get("status") == "error":
+            return jsonify(result), 400
+        return jsonify(result), 201
+
+    @app.route('/canvas/<canvas_id>')
+    def view_canvas(canvas_id):
+        """
+        View a canvas - renders the visual content.
+
+        For SVG: Returns the SVG with proper content-type
+        For HTML: Returns the HTML page
+        """
+        canvas = phoenix.memory.get_canvas(canvas_id)
+        if not canvas:
+            return jsonify({"error": f"Canvas '{canvas_id}' not found"}), 404
+
+        content = canvas['content']
+        content_type = canvas['content_type']
+        title = canvas.get('title', canvas_id)
+
+        if content_type == 'svg':
+            # Wrap SVG in HTML for nice viewing
+            html = f"""<!DOCTYPE html>
+<html>
+<head>
+    <title>{title}</title>
+    <style>
+        body {{ margin: 0; display: flex; justify-content: center; align-items: center; min-height: 100vh; background: #f5f5f5; }}
+        .canvas-container {{ background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }}
+        h1 {{ text-align: center; color: #333; font-family: sans-serif; }}
+    </style>
+</head>
+<body>
+    <div class="canvas-container">
+        <h1>{title}</h1>
+        {content}
+    </div>
+</body>
+</html>"""
+            return html, 200, {'Content-Type': 'text/html; charset=utf-8'}
+
+        elif content_type == 'html':
+            return content, 200, {'Content-Type': 'text/html; charset=utf-8'}
+
+        else:
+            # Return raw content for other types
+            return content, 200, {'Content-Type': 'text/plain; charset=utf-8'}
+
+    @app.route('/canvas/<canvas_id>/raw')
+    def get_canvas_raw(canvas_id):
+        """Get raw canvas data as JSON."""
+        canvas = phoenix.memory.get_canvas(canvas_id)
+        if not canvas:
+            return jsonify({"error": f"Canvas '{canvas_id}' not found"}), 404
+        return jsonify(canvas)
 
     # ============ PRACTICE/AUTONOMY ENDPOINTS ============
 
