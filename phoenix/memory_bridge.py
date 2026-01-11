@@ -110,6 +110,20 @@ class MemoryBridge:
             ON skills(category)
         """)
 
+        # Canvas storage (visual creations - SVG, HTML, diagrams)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS canvas (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                canvas_id TEXT UNIQUE NOT NULL,
+                title TEXT,
+                content_type TEXT DEFAULT 'svg',
+                content TEXT NOT NULL,
+                description TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+        """)
+
         conn.commit()
         conn.close()
 
@@ -1078,3 +1092,104 @@ class MemoryBridge:
             return {"status": "deleted", "name": name}
         else:
             return {"status": "error", "error": f"Skill '{name}' not found"}
+
+    # ============ CANVAS (VISUAL CREATIONS) ============
+
+    def create_canvas(self, content: str, canvas_id: str = None, title: str = None,
+                      content_type: str = "svg", description: str = None) -> Dict[str, Any]:
+        """
+        Store a visual creation (SVG, HTML, diagram).
+
+        Args:
+            content: The visual content (SVG markup, HTML, etc.)
+            canvas_id: Unique identifier (auto-generated if not provided)
+            title: Optional title for the creation
+            content_type: svg, html, or mermaid (default: svg)
+            description: Optional description
+
+        Returns:
+            Dict with canvas_id and URL to view it
+        """
+        if not canvas_id:
+            canvas_id = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        now = datetime.utcnow().isoformat()
+
+        try:
+            cursor.execute("""
+                INSERT INTO canvas (canvas_id, title, content_type, content, description, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (canvas_id, title, content_type, content, description, now, now))
+
+            conn.commit()
+
+            return {
+                "status": "created",
+                "canvas_id": canvas_id,
+                "content_type": content_type,
+                "view_url": f"/canvas/{canvas_id}",
+                "created_at": now
+            }
+        except sqlite3.IntegrityError:
+            return {
+                "status": "error",
+                "error": f"Canvas '{canvas_id}' already exists"
+            }
+        finally:
+            conn.close()
+
+    def get_canvas(self, canvas_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Retrieve a canvas by ID.
+
+        Returns full canvas content for rendering.
+        """
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT id, canvas_id, title, content_type, content, description, created_at, updated_at
+            FROM canvas WHERE canvas_id = ?
+        """, (canvas_id,))
+
+        row = cursor.fetchone()
+        conn.close()
+
+        if not row:
+            return None
+
+        return {
+            "id": row[0],
+            "canvas_id": row[1],
+            "title": row[2],
+            "content_type": row[3],
+            "content": row[4],
+            "description": row[5],
+            "created_at": row[6],
+            "updated_at": row[7]
+        }
+
+    def list_canvases(self, limit: int = 20) -> List[Dict[str, Any]]:
+        """List recent canvases (without full content)."""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT canvas_id, title, content_type, description, created_at
+            FROM canvas ORDER BY created_at DESC LIMIT ?
+        """, (limit,))
+
+        rows = cursor.fetchall()
+        conn.close()
+
+        return [{
+            "canvas_id": row[0],
+            "title": row[1],
+            "content_type": row[2],
+            "description": row[3],
+            "created_at": row[4],
+            "view_url": f"/canvas/{row[0]}"
+        } for row in rows]
