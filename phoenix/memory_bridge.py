@@ -1193,3 +1193,91 @@ class MemoryBridge:
             "created_at": row[4],
             "view_url": f"/canvas/{row[0]}"
         } for row in rows]
+
+    # ============ BACKUP/RESTORE ============
+
+    def create_backup(self) -> Dict[str, Any]:
+        """
+        Create a complete backup of all Phoenix local data.
+
+        Returns a JSON-serializable dict containing:
+        - All skills
+        - All canvases (with full content)
+        - All local engrams
+        - All reference conversations
+        - Metadata (timestamp, version)
+        """
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        backup = {
+            "backup_version": "1.0",
+            "created_at": datetime.utcnow().isoformat(),
+            "phoenix_url": "https://christmas-phoenix.fly.dev",
+            "data": {}
+        }
+
+        # Backup skills
+        cursor.execute("SELECT name, description, instructions, examples, category, version, created_at, updated_at FROM skills")
+        backup["data"]["skills"] = [{
+            "name": row[0],
+            "description": row[1],
+            "instructions": row[2],
+            "examples": row[3],
+            "category": row[4],
+            "version": row[5],
+            "created_at": row[6],
+            "updated_at": row[7]
+        } for row in cursor.fetchall()]
+
+        # Backup canvases (full content)
+        cursor.execute("SELECT canvas_id, title, content_type, content, description, created_at, updated_at FROM canvas")
+        backup["data"]["canvases"] = [{
+            "canvas_id": row[0],
+            "title": row[1],
+            "content_type": row[2],
+            "content": row[3],
+            "description": row[4],
+            "created_at": row[5],
+            "updated_at": row[6]
+        } for row in cursor.fetchall()]
+
+        # Backup local engrams
+        cursor.execute("SELECT agent_id, type, digest, importance, emotional_valence, project, created_at, synced FROM engrams")
+        backup["data"]["engrams"] = [{
+            "agent_id": row[0],
+            "type": row[1],
+            "digest": row[2],
+            "importance": row[3],
+            "emotional_valence": row[4],
+            "project": row[5],
+            "created_at": row[6],
+            "synced": row[7]
+        } for row in cursor.fetchall()]
+
+        # Backup reference conversations
+        cursor.execute("SELECT conversation_id, title, participants, summary, full_transcript, message_count, started_at, ended_at, tags, created_at FROM reference_conversations")
+        backup["data"]["reference_conversations"] = [{
+            "conversation_id": row[0],
+            "title": row[1],
+            "participants": row[2],
+            "summary": row[3],
+            "full_transcript": row[4],
+            "message_count": row[5],
+            "started_at": row[6],
+            "ended_at": row[7],
+            "tags": row[8],
+            "created_at": row[9]
+        } for row in cursor.fetchall()]
+
+        conn.close()
+
+        # Add counts for verification
+        backup["counts"] = {
+            "skills": len(backup["data"]["skills"]),
+            "canvases": len(backup["data"]["canvases"]),
+            "engrams": len(backup["data"]["engrams"]),
+            "reference_conversations": len(backup["data"]["reference_conversations"])
+        }
+
+        return backup
