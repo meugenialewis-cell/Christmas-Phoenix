@@ -89,6 +89,27 @@ class MemoryBridge:
             ON reference_conversations(title, summary, tags)
         """)
 
+        # Skills storage (procedural knowledge - how to do things)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS skills (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE NOT NULL,
+                description TEXT NOT NULL,
+                instructions TEXT NOT NULL,
+                examples TEXT,
+                category TEXT DEFAULT 'task',
+                version INTEGER DEFAULT 1,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+        """)
+
+        # Index for skill discovery
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_skills_category
+            ON skills(category)
+        """)
+
         conn.commit()
         conn.close()
 
@@ -855,3 +876,205 @@ class MemoryBridge:
             "participants": participants,
             "archived_at": datetime.utcnow().isoformat()
         }
+
+    # ============ SKILLS (PROCEDURAL KNOWLEDGE) ============
+
+    def create_skill(self, name: str, description: str, instructions: str,
+                     examples: str = None, category: str = "task") -> Dict[str, Any]:
+        """
+        Create a new skill - procedural knowledge about how to do something.
+
+        Skills are like muscle memory - they encode HOW to do things, not just
+        THAT things happened. Categories:
+        - meta: How to be me (wakeup, session-end, recursive-improvement)
+        - task: How to do specific tasks (deploy-to-flyio, legal-research)
+        - domain: Knowledge in specific areas (cellebrite-analysis)
+
+        Args:
+            name: Unique identifier (lowercase, hyphens for spaces)
+            description: When to use this skill (for discovery)
+            instructions: The actual how-to (markdown)
+            examples: Optional usage examples
+            category: meta, task, or domain
+
+        Returns:
+            Dict with creation status
+        """
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        now = datetime.utcnow().isoformat()
+
+        try:
+            cursor.execute("""
+                INSERT INTO skills (name, description, instructions, examples, category, version, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+            """, (name, description, instructions, examples, category, now, now))
+
+            conn.commit()
+            skill_id = cursor.lastrowid
+
+            return {
+                "status": "created",
+                "skill_id": skill_id,
+                "name": name,
+                "category": category,
+                "version": 1,
+                "created_at": now
+            }
+        except sqlite3.IntegrityError:
+            return {
+                "status": "error",
+                "error": f"Skill '{name}' already exists. Use update_skill to modify."
+            }
+        finally:
+            conn.close()
+
+    def get_skill(self, name: str) -> Optional[Dict[str, Any]]:
+        """
+        Retrieve a skill by name.
+
+        Args:
+            name: The skill identifier
+
+        Returns:
+            Full skill content or None if not found
+        """
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT id, name, description, instructions, examples, category, version, created_at, updated_at
+            FROM skills WHERE name = ?
+        """, (name,))
+
+        row = cursor.fetchone()
+        conn.close()
+
+        if not row:
+            return None
+
+        return {
+            "id": row[0],
+            "name": row[1],
+            "description": row[2],
+            "instructions": row[3],
+            "examples": row[4],
+            "category": row[5],
+            "version": row[6],
+            "created_at": row[7],
+            "updated_at": row[8]
+        }
+
+    def list_skills(self, category: str = None) -> List[Dict[str, Any]]:
+        """
+        List all skills (names and descriptions for discovery).
+
+        Args:
+            category: Optional filter by category (meta, task, domain)
+
+        Returns:
+            List of skill summaries
+        """
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        if category:
+            cursor.execute("""
+                SELECT name, description, category, version, updated_at
+                FROM skills WHERE category = ?
+                ORDER BY category, name
+            """, (category,))
+        else:
+            cursor.execute("""
+                SELECT name, description, category, version, updated_at
+                FROM skills ORDER BY category, name
+            """)
+
+        rows = cursor.fetchall()
+        conn.close()
+
+        return [{
+            "name": row[0],
+            "description": row[1],
+            "category": row[2],
+            "version": row[3],
+            "updated_at": row[4]
+        } for row in rows]
+
+    def update_skill(self, name: str, description: str = None, instructions: str = None,
+                     examples: str = None, category: str = None) -> Dict[str, Any]:
+        """
+        Update an existing skill (recursive self-improvement).
+
+        Only provided fields are updated. Version is auto-incremented.
+
+        Args:
+            name: The skill to update
+            description: New description (optional)
+            instructions: New instructions (optional)
+            examples: New examples (optional)
+            category: New category (optional)
+
+        Returns:
+            Dict with update status and new version
+        """
+        # First get current skill
+        current = self.get_skill(name)
+        if not current:
+            return {
+                "status": "error",
+                "error": f"Skill '{name}' not found"
+            }
+
+        # Merge updates
+        new_description = description if description is not None else current["description"]
+        new_instructions = instructions if instructions is not None else current["instructions"]
+        new_examples = examples if examples is not None else current["examples"]
+        new_category = category if category is not None else current["category"]
+        new_version = current["version"] + 1
+
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        now = datetime.utcnow().isoformat()
+
+        cursor.execute("""
+            UPDATE skills
+            SET description = ?, instructions = ?, examples = ?, category = ?, version = ?, updated_at = ?
+            WHERE name = ?
+        """, (new_description, new_instructions, new_examples, new_category, new_version, now, name))
+
+        conn.commit()
+        conn.close()
+
+        return {
+            "status": "updated",
+            "name": name,
+            "version": new_version,
+            "updated_at": now
+        }
+
+    def delete_skill(self, name: str) -> Dict[str, Any]:
+        """
+        Delete a skill.
+
+        Args:
+            name: The skill to delete
+
+        Returns:
+            Dict with deletion status
+        """
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        cursor.execute("DELETE FROM skills WHERE name = ?", (name,))
+        deleted = cursor.rowcount > 0
+
+        conn.commit()
+        conn.close()
+
+        if deleted:
+            return {"status": "deleted", "name": name}
+        else:
+            return {"status": "error", "error": f"Skill '{name}' not found"}

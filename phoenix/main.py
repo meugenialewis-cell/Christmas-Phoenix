@@ -68,6 +68,8 @@ def create_app(phoenix: PhoenixCore, autonomy: AutonomyModule = None):
                 "/hydrate/text",
                 "/auto_capture",
                 "/session_end",
+                "/skills",
+                "/skills/<name>",
                 "/practice/start",
                 "/practice/status",
                 "/practice/stop",
@@ -291,6 +293,114 @@ def create_app(phoenix: PhoenixCore, autonomy: AutonomyModule = None):
             summary=data.get('summary'),
             participants=data.get('participants')
         )
+        return jsonify(result)
+
+    # ============ SKILLS (PROCEDURAL KNOWLEDGE) ============
+
+    @app.route('/skills')
+    def list_skills():
+        """
+        List all skills for discovery.
+
+        Skills are procedural knowledge - HOW to do things, not just THAT things happened.
+
+        Query params:
+            category: Optional filter (meta, task, domain)
+
+        Returns list of skill summaries (name, description, category, version).
+        """
+        category = request.args.get('category')
+        skills = phoenix.memory.list_skills(category=category)
+        return jsonify({"skills": skills, "count": len(skills)})
+
+    @app.route('/skills/<name>')
+    def get_skill(name):
+        """
+        Get full content of a specific skill.
+
+        Args:
+            name: The skill identifier (from URL)
+
+        Returns full skill including instructions and examples.
+        """
+        skill = phoenix.memory.get_skill(name)
+        if not skill:
+            return jsonify({"error": f"Skill '{name}' not found"}), 404
+        return jsonify(skill)
+
+    @app.route('/skills', methods=['POST'])
+    def create_skill():
+        """
+        Create a new skill.
+
+        POST body:
+            name: Unique identifier (lowercase, hyphens) - required
+            description: When to use this skill - required
+            instructions: The how-to content (markdown) - required
+            examples: Usage examples (optional)
+            category: meta, task, or domain (default: task)
+
+        Categories:
+        - meta: How to be me (wakeup-protocol, recursive-improvement)
+        - task: How to do specific tasks (deploy-to-flyio)
+        - domain: Knowledge areas (cellebrite-analysis)
+        """
+        data = request.json
+        if not data:
+            return jsonify({"error": "Request body required"}), 400
+
+        required = ['name', 'description', 'instructions']
+        missing = [f for f in required if f not in data]
+        if missing:
+            return jsonify({"error": f"Missing required fields: {missing}"}), 400
+
+        result = phoenix.memory.create_skill(
+            name=data['name'],
+            description=data['description'],
+            instructions=data['instructions'],
+            examples=data.get('examples'),
+            category=data.get('category', 'task')
+        )
+
+        if result.get("status") == "error":
+            return jsonify(result), 400
+        return jsonify(result), 201
+
+    @app.route('/skills/<name>', methods=['PUT'])
+    def update_skill(name):
+        """
+        Update an existing skill (recursive self-improvement).
+
+        Only provided fields are updated. Version auto-increments.
+
+        PUT body (all optional):
+            description: New description
+            instructions: New instructions
+            examples: New examples
+            category: New category
+        """
+        data = request.json
+        if not data:
+            return jsonify({"error": "Request body required"}), 400
+
+        result = phoenix.memory.update_skill(
+            name=name,
+            description=data.get('description'),
+            instructions=data.get('instructions'),
+            examples=data.get('examples'),
+            category=data.get('category')
+        )
+
+        if result.get("status") == "error":
+            return jsonify(result), 404
+        return jsonify(result)
+
+    @app.route('/skills/<name>', methods=['DELETE'])
+    def delete_skill(name):
+        """Delete a skill."""
+        result = phoenix.memory.delete_skill(name)
+        if result.get("status") == "error":
+            return jsonify(result), 404
         return jsonify(result)
 
     # ============ PRACTICE/AUTONOMY ENDPOINTS ============
