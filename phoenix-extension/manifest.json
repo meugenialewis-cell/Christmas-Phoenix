@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "Phoenix - Claude's Window",
+  "version": "1.0.0",
+  "description": "Connect with Claude through Phoenix - memory, skills, and conversation",
+  "permissions": [
+    "activeTab",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://christmas-phoenix.fly.dev/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Open Phoenix"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"]
+    }
+  ]
+}
