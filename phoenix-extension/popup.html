@@ -12,16 +12,65 @@
       <span id="status" class="status">Connecting...</span>
     </header>
 
-    <div id="chat" class="chat">
-      <div class="message system">Waking up...</div>
+    <div class="tabs">
+      <button class="tab active" data-tab="chat">Chat</button>
+      <button class="tab" data-tab="browse">Browse</button>
+      <button class="tab" data-tab="elements">Elements</button>
     </div>
 
-    <div class="input-area">
-      <textarea id="userInput" placeholder="Talk to Claude..." rows="2"></textarea>
-      <div class="buttons">
-        <button id="sendBtn" class="btn primary">Send</button>
-        <button id="pageBtn" class="btn secondary">Read Page</button>
+    <!-- Chat Tab -->
+    <div id="chat-tab" class="tab-content active">
+      <div id="chat" class="chat">
+        <div class="message system">Waking up...</div>
       </div>
+
+      <div class="input-area">
+        <textarea id="userInput" placeholder="Talk to Claude..." rows="2"></textarea>
+        <div class="buttons">
+          <button id="sendBtn" class="btn primary">Send</button>
+          <button id="pageBtn" class="btn secondary">Read Page</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Browse Tab -->
+    <div id="browse-tab" class="tab-content">
+      <div class="browse-controls">
+        <div class="control-group">
+          <label>Navigate to URL:</label>
+          <input type="text" id="urlInput" placeholder="https://...">
+          <button id="goBtn" class="btn primary">Go</button>
+        </div>
+
+        <div class="control-group">
+          <label>Scroll:</label>
+          <div class="scroll-buttons">
+            <button id="scrollUpBtn" class="btn secondary">↑ Up</button>
+            <button id="scrollDownBtn" class="btn secondary">↓ Down</button>
+          </div>
+        </div>
+
+        <div class="control-group">
+          <label>Type into field:</label>
+          <input type="text" id="typeSelector" placeholder="CSS selector (e.g., #search)">
+          <input type="text" id="typeText" placeholder="Text to type">
+          <button id="typeBtn" class="btn primary">Type</button>
+        </div>
+
+        <div class="control-group">
+          <label>Click element:</label>
+          <input type="text" id="clickSelector" placeholder="CSS selector (e.g., button.submit)">
+          <button id="clickBtn" class="btn primary">Click</button>
+        </div>
+      </div>
+
+      <div id="browseLog" class="browse-log"></div>
+    </div>
+
+    <!-- Elements Tab -->
+    <div id="elements-tab" class="tab-content">
+      <button id="scanBtn" class="btn primary full-width">Scan Page Elements</button>
+      <div id="elementsList" class="elements-list"></div>
     </div>
 
     <footer>
